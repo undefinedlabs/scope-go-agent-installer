@@ -58,7 +58,6 @@ func getOsImportSpec() *ast.ImportSpec {
 	}
 }
 
-
 func getTestingImportSpec() *ast.ImportSpec {
 	return &ast.ImportSpec{
 		Doc:  nil,

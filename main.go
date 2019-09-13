@@ -213,10 +213,15 @@ func processFileTestMain(filePath string) error {
 	} else {
 		if !testMainHasGlobalAgent(testMainFunc, currentImportName) {
 			if hasTMParams {
-				fmt.Printf("\tPackage '%s' has a TestMain func already in '%s', please modify the file manually.\n",
-					fileParser.Name.Name, filePath)
+				if modifyExistingTestMain(testMainFunc, currentImportName) {
+					fmt.Printf("\tThe TestMain func of package '%s' in '%s' has been patched.\n",
+						fileParser.Name.Name, filePath)
+				} else {
+					fmt.Printf("\tPackage '%s' already has a TestMain func in '%s', please modify the file manually.\n",
+						fileParser.Name.Name, filePath)
+				}
 			} else {
-				fmt.Printf("\tPackage '%s' has a TestMain func already in '%s', but doesn't have the right 'testing.M' parameter.\n",
+				fmt.Printf("\tPackage '%s' already has a TestMain func in '%s' but doesn't have the right 'testing.M' parameter.\n",
 					fileParser.Name.Name, filePath)
 				return nil
 			}
