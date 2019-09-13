@@ -2,7 +2,6 @@ package main
 
 import (
 	"go/ast"
-	"go/token"
 )
 
 func isTestMainFunc(decl ast.Decl) (*ast.FuncDecl, bool, bool) {
@@ -115,79 +114,13 @@ func getTestMainFuncBody(currentImportName string) *ast.BlockStmt {
 	return &ast.BlockStmt{
 		Lbrace: 0,
 		List: []ast.Stmt{
-			getRunTestsAssignStmt(),
-			getGlobalAgentStopExpr(currentImportName),
-			getOsExitResultExpr(),
+			getScopeRunExpr(currentImportName),
 		},
 		Rbrace: 0,
 	}
 }
 
-func getRunTestsAssignStmt() *ast.AssignStmt {
-	return &ast.AssignStmt{
-		Lhs: []ast.Expr{
-			&ast.Ident{
-				NamePos: 0,
-				Name:    "result",
-				Obj:     nil,
-			},
-		},
-		TokPos: 0,
-		Tok:    token.DEFINE,
-		Rhs: []ast.Expr{
-			&ast.CallExpr{
-				Fun: &ast.SelectorExpr{
-					X: &ast.Ident{
-						NamePos: 0,
-						Name:    "m",
-						Obj:     nil,
-					},
-					Sel: &ast.Ident{
-						NamePos: 0,
-						Name:    "Run",
-						Obj:     nil,
-					},
-				},
-				Lparen:   0,
-				Args:     nil,
-				Ellipsis: 0,
-				Rparen:   0,
-			},
-		},
-	}
-}
-
-func getGlobalAgentStopExpr(currentImportName string) *ast.ExprStmt {
-	return &ast.ExprStmt{
-		X: &ast.CallExpr{
-			Fun: &ast.SelectorExpr{
-				X: &ast.SelectorExpr{
-					X: &ast.Ident{
-						NamePos: 0,
-						Name:    currentImportName,
-						Obj:     nil,
-					},
-					Sel: &ast.Ident{
-						NamePos: 0,
-						Name:    "GlobalAgent",
-						Obj:     nil,
-					},
-				},
-				Sel: &ast.Ident{
-					NamePos: 0,
-					Name:    "Stop",
-					Obj:     nil,
-				},
-			},
-			Lparen:   0,
-			Args:     nil,
-			Ellipsis: 0,
-			Rparen:   0,
-		},
-	}
-}
-
-func getOsExitResultExpr() *ast.ExprStmt {
+func getScopeRunExpr(currentImportName string) *ast.ExprStmt {
 	return &ast.ExprStmt{
 		X: &ast.CallExpr{
 			Fun: &ast.SelectorExpr{
@@ -204,10 +137,36 @@ func getOsExitResultExpr() *ast.ExprStmt {
 			},
 			Lparen: 0,
 			Args: []ast.Expr{
-				&ast.Ident{
-					NamePos: 0,
-					Name:    "result",
-					Obj:     nil,
+				&ast.CallExpr{
+					Fun: &ast.SelectorExpr{
+						X: &ast.SelectorExpr{
+							X: &ast.Ident{
+								NamePos: 0,
+								Name:    currentImportName,
+								Obj:     nil,
+							},
+							Sel: &ast.Ident{
+								NamePos: 0,
+								Name:    "GlobalAgent",
+								Obj:     nil,
+							},
+						},
+						Sel: &ast.Ident{
+							NamePos: 0,
+							Name:    "Run",
+							Obj:     nil,
+						},
+					},
+					Lparen: 0,
+					Args: []ast.Expr{
+						&ast.Ident{
+							NamePos: 0,
+							Name:    "m",
+							Obj:     nil,
+						},
+					},
+					Ellipsis: 0,
+					Rparen:   0,
 				},
 			},
 			Ellipsis: 0,
