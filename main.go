@@ -168,20 +168,33 @@ func processFileTestMain(filePath string) error {
 	for _, decl := range fileParser.Decls {
 		if genDcl, ok := isImportDeclaration(decl); ok {
 			hasImports = true
-			importFound := false
+			osImportFound := false
+			testingImportFound := false
+			agentImportFound := false
 			for _, impSpec := range genDcl.Specs {
 				importSentence := impSpec.(*ast.ImportSpec)
 				if importSentence.Path.Value == ImportPath {
 					currentImportName = importSentence.Name.Name
+					agentImportFound = true
 					continue
 				}
 				if importSentence.Path.Value == "\"os\"" {
-					importFound = true
+					osImportFound = true
+					continue
+				}
+				if importSentence.Path.Value == "\"testing\"" {
+					testingImportFound = true
 					continue
 				}
 			}
-			if !importFound {
+			if !osImportFound {
 				genDcl.Specs = append(genDcl.Specs, getOsImportSpec())
+			}
+			if !testingImportFound {
+				genDcl.Specs = append(genDcl.Specs, getTestingImportSpec())
+			}
+			if !agentImportFound {
+				genDcl.Specs = append(genDcl.Specs, getAgentImportSpec())
 			}
 		} else if fDecl, hTmParams, hasTmName := isTestMainFunc(decl); hasTmName {
 			testMainFunc = fDecl
@@ -198,10 +211,15 @@ func processFileTestMain(filePath string) error {
 	if testMainFunc == nil {
 		fileParser.Decls = append(fileParser.Decls, getTestMainFunc(currentImportName))
 	} else {
-		_ = hasTMParams
 		if !testMainHasGlobalAgent(testMainFunc, currentImportName) {
-			fmt.Printf("\tPackage '%s' has a TestMain func already in '%s', please modify the file manually.\n",
-				fileParser.Name.Name, filePath)
+			if hasTMParams {
+				fmt.Printf("\tPackage '%s' has a TestMain func already in '%s', please modify the file manually.\n",
+					fileParser.Name.Name, filePath)
+			} else {
+				fmt.Printf("\tPackage '%s' has a TestMain func already in '%s', but doesn't have the right 'testing.M' parameter.\n",
+					fileParser.Name.Name, filePath)
+				return nil
+			}
 		}
 	}
 

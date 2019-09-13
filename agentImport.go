@@ -57,3 +57,18 @@ func getOsImportSpec() *ast.ImportSpec {
 		EndPos:  0,
 	}
 }
+
+
+func getTestingImportSpec() *ast.ImportSpec {
+	return &ast.ImportSpec{
+		Doc:  nil,
+		Name: nil,
+		Path: &ast.BasicLit{
+			ValuePos: 0,
+			Kind:     token.STRING,
+			Value:    "\"testing\"",
+		},
+		Comment: nil,
+		EndPos:  0,
+	}
+}
