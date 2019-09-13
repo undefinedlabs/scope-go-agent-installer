@@ -35,22 +35,62 @@ func isTestMainFunc(decl ast.Decl) (*ast.FuncDecl, bool, bool) {
 }
 
 func testMainHasGlobalAgent(decl *ast.FuncDecl, currentImportName string) bool {
-	for _, inst := range decl.Body.List {
-		if expr, ok := inst.(*ast.ExprStmt); ok {
-			if callExpr, ok2 := expr.X.(*ast.CallExpr); ok2 {
-				if selExpr, ok3 := callExpr.Fun.(*ast.SelectorExpr); ok3 {
-					if innerSelExpr, ok4 := selExpr.X.(*ast.SelectorExpr); ok4 {
-						hasImportIdent := false
-						if ident, ok5 := innerSelExpr.X.(*ast.Ident); ok5 {
-							hasImportIdent = ident.Name == currentImportName
-						}
-						if hasImportIdent && innerSelExpr.Sel.Name == "GlobalAgent" {
-							return true
-						}
+	globalAgentFound := false
+	ast.Inspect(decl.Body, func(node ast.Node) bool {
+		if node == nil {
+			return true
+		}
+		if callExpr, ok := node.(*ast.CallExpr); ok {
+			if selExpr, ok2 := callExpr.Fun.(*ast.SelectorExpr); ok2 {
+				if innerSelExpr, ok3 := selExpr.X.(*ast.SelectorExpr); ok3 {
+					if innerSelExpr.X.(*ast.Ident).Name == currentImportName &&
+						innerSelExpr.Sel.Name == "GlobalAgent" {
+						globalAgentFound = true
+						return false
 					}
 				}
 			}
 		}
+		return true
+	})
+
+	return globalAgentFound
+}
+
+func modifyExistingTestMain(decl *ast.FuncDecl, currentImportName string) bool {
+	suiteVar := ""
+	if len(decl.Type.Params.List) == 1 {
+		if starExpr, ok := decl.Type.Params.List[0].Type.(*ast.StarExpr); ok {
+			if selExpr, ok2 := starExpr.X.(*ast.SelectorExpr); ok2 {
+				if ident, ok3 := selExpr.X.(*ast.Ident); ok3 && ident.Name == "testing" && selExpr.Sel.Name == "M" {
+					suiteVar = decl.Type.Params.List[0].Names[0].Name
+				}
+			}
+		}
+	}
+
+	var originalCallExpr *ast.CallExpr
+	ast.Inspect(decl.Body, func(node ast.Node) bool {
+		if node == nil {
+			return true
+		}
+		if callExpr, ok := node.(*ast.CallExpr); ok {
+			if selExpr, ok2 := callExpr.Fun.(*ast.SelectorExpr); ok2 {
+				if xIdent, ok3 := selExpr.X.(*ast.Ident); ok3 {
+					if xIdent.Name == suiteVar && selExpr.Sel.Name == "Run" {
+						originalCallExpr = callExpr
+						return false
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	if originalCallExpr != nil {
+		newCallExpr := getScopeRunExpr(currentImportName).X.(*ast.CallExpr).Args[0].(*ast.CallExpr)
+		*originalCallExpr = *newCallExpr
+		return true
 	}
 	return false
 }
