@@ -204,7 +204,7 @@ func processFileTestMain(filePath string) error {
 
 	if !hasImports {
 		importDeclaration := getImportDeclaration()
-		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec(), getOsImportSpec())
+		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec(), getOsImportSpec(), getTestingImportSpec())
 		fileParser.Decls = append([]ast.Decl{importDeclaration}, fileParser.Decls...)
 	}
 
