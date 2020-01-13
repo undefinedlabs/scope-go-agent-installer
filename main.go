@@ -64,7 +64,6 @@ func main() {
 				mFile := path.Join(tpi.Folder, "_gen_main_test.go")
 				tpi.MainFile = &mFile
 
-				// TODO: Create a new TestMain
 				fmt.Printf("Creating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
 
 				file, errFile := os.Create(mFile)
