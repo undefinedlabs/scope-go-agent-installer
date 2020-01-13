@@ -22,12 +22,12 @@ type testPackageInfo struct {
 }
 
 var testMainFileTemplate, _ = template.New("testMain").Parse(
-	`
-package {{.Name}}
+	`package {{.Name}}
 
 import (
 	"fmt"
 	"os"
+	"testing"
 	"go.undefinedlabs.com/scopeagent"
 	"go.undefinedlabs.com/scopeagent/agent"
 	"go.undefinedlabs.com/scopeagent/instrumentation/nethttp"
