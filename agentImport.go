@@ -29,15 +29,23 @@ func getImportDeclaration() *ast.GenDecl {
 func getAgentImportSpec() *ast.ImportSpec {
 	return &ast.ImportSpec{
 		Doc: nil,
-		Name: &ast.Ident{
-			NamePos: 0,
-			Name:    ImportName,
-			Obj:     nil,
-		},
 		Path: &ast.BasicLit{
 			ValuePos: 0,
 			Kind:     token.STRING,
 			Value:    ImportPath,
+		},
+		Comment: nil,
+		EndPos:  0,
+	}
+}
+
+func getAgentOptionsImportSpec() *ast.ImportSpec {
+	return &ast.ImportSpec{
+		Doc: nil,
+		Path: &ast.BasicLit{
+			ValuePos: 0,
+			Kind:     token.STRING,
+			Value:    AgentImportPath,
 		},
 		Comment: nil,
 		EndPos:  0,
