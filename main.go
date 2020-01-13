@@ -26,6 +26,7 @@ var testMainFileTemplate, _ = template.New("testMain").Parse(
 package {{.Name}}
 
 import (
+	"fmt"
 	"os"
 	"go.undefinedlabs.com/scopeagent"
 	"go.undefinedlabs.com/scopeagent/agent"
@@ -33,6 +34,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	fmt.Println("Starting Tests")
 	nethttp.PatchHttpDefaultClient()
 	os.Exit(scopeagent.Run(m, agent.WithSetGlobalTracer()))
 }
