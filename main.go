@@ -1,20 +1,42 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"log"
 	"os"
+	"path"
+	"text/template"
 )
 
-type testMainInfo struct {
-	firstFileOfPackage *string
-	testMainFile       *string
-	testMainParam      bool
+type testPackageInfo struct {
+	Name      string
+	Folder    string
+	MainFile  *string
+	MainParam bool
 }
+
+var testMainFileTemplate, _ = template.New("testMain").Parse(
+	`
+package {{.Name}}
+
+import (
+	"os"
+	"go.undefinedlabs.com/scopeagent"
+	"go.undefinedlabs.com/scopeagent/agent"
+	"go.undefinedlabs.com/scopeagent/instrumentation/nethttp"
+)
+
+func TestMain(m *testing.M) {
+	nethttp.PatchHttpDefaultClient()
+	os.Exit(scopeagent.Run(m, agent.WithSetGlobalTracer()))
+}
+`)
 
 func main() {
 	folder := flag.String("folder", "", "Source code folder to analyze.")
@@ -31,17 +53,35 @@ func main() {
 	}
 
 	if folder != nil {
-		packagesTestMainInfo := map[string]*testMainInfo{}
+		testPackageInfoMap := map[string]*testPackageInfo{}
 		fmt.Printf("Processing: %s\n", *folder)
-		err := processFolderTestFiles(*folder, processFileTestFuncs, &packagesTestMainInfo)
+		err := processFolderTestFiles(*folder, processTestFile, &testPackageInfoMap)
 		if err != nil {
 			fmt.Println(err)
 		}
-		for _, tmInfo := range packagesTestMainInfo {
-			if tmInfo.testMainFile == nil {
-				err = processFileTestMain(*tmInfo.firstFileOfPackage)
+		for _, tpi := range testPackageInfoMap {
+			if tpi.MainFile == nil {
+				mFile := path.Join(tpi.Folder, "_gen_main_test.go")
+				tpi.MainFile = &mFile
+
+				// TODO: Create a new TestMain
+				fmt.Printf("Creating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
+
+				file, errFile := os.Create(mFile)
+				if errFile != nil {
+					log.Fatalf("execution failed: %s", errFile)
+				}
+				writer := bufio.NewWriter(file)
+				err := testMainFileTemplate.Execute(writer, tpi)
+				if err != nil {
+					log.Fatalf("execution failed: %s", err)
+				}
+				writer.Flush()
+				file.Close()
+
 			} else {
-				err = processFileTestMain(*tmInfo.testMainFile)
+				fmt.Printf("Updating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
+				err = processFileTestMain(*tpi.MainFile)
 			}
 			if err != nil {
 				fmt.Println(err)
@@ -51,7 +91,7 @@ func main() {
 	}
 }
 
-func processFolderTestFiles(folder string, fileProcessor func(string, interface{}) error, state interface{}) error {
+func processFolderTestFiles(folder string, fileProcessor func(string, interface{}) (bool, error), state interface{}) error {
 	f, err := os.Open(folder)
 	if err != nil {
 		return err
@@ -60,6 +100,7 @@ func processFolderTestFiles(folder string, fileProcessor func(string, interface{
 	if err != nil {
 		return err
 	}
+	mainFound := false
 	for _, entry := range entries {
 		entryName := entry.Name()
 		if entryName[0] == '.' {
@@ -71,87 +112,49 @@ func processFolderTestFiles(folder string, fileProcessor func(string, interface{
 			if fErr != nil {
 				return fErr
 			}
-		} else if len(filePath) > 8 {
+		} else if len(filePath) > 8 && !mainFound {
 			if filePath[len(filePath)-8:] != "_test.go" {
 				continue
 			}
-			fErr := fileProcessor(filePath, state)
+			found, fErr := fileProcessor(filePath, state)
 			if fErr != nil {
 				return fErr
 			}
+			mainFound = found
 		}
 	}
 	return nil
 }
 
-func processFileTestFuncs(filePath string, state interface{}) error {
+func processTestFile(filePath string, state interface{}) (bool, error) {
 	fSet := token.NewFileSet()
 	fileParser, err := parser.ParseFile(fSet, filePath, nil, parser.ParseComments)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	tmInfoMap := *(state.(*map[string]*testMainInfo))
-	tmInfo := tmInfoMap[fileParser.Name.Name]
-	if tmInfo == nil {
-		tmInfo = &testMainInfo{
-			firstFileOfPackage: &filePath,
-			testMainFile:       nil,
+	tmInfoMap := *(state.(*map[string]*testPackageInfo))
+	tpi := tmInfoMap[fileParser.Name.Name]
+	if tpi == nil {
+		tpi = &testPackageInfo{
+			Name:      fileParser.Name.Name,
+			Folder:    path.Dir(filePath),
+			MainFile:  nil,
+			MainParam: false,
 		}
-		tmInfoMap[fileParser.Name.Name] = tmInfo
+		tmInfoMap[fileParser.Name.Name] = tpi
 	}
 
-	hasImports := false
-	dirty := false
-	currentImportName := ImportName
+	found := false
 	for _, decl := range fileParser.Decls {
-		if genDcl, ok := isImportDeclaration(decl); ok {
-			hasImports = true
-			importFound := false
-			for _, impSpec := range genDcl.Specs {
-				importSentence := impSpec.(*ast.ImportSpec)
-				if importSentence.Path.Value == ImportPath {
-					importFound = true
-					currentImportName = importSentence.Name.Name
-					break
-				}
-			}
-			if !importFound {
-				genDcl.Specs = append(genDcl.Specs, getAgentImportSpec())
-			}
-		} else if fDecl, varName, ok := isTestFunc(decl); ok {
-			if !isStartTestAlreadyImplemented(fDecl, currentImportName) {
-				fDecl.Body.List = append([]ast.Stmt{
-					getScopeAgentStartTestSentence(currentImportName, varName),
-					getScopeAgentEndTestDeferSentence(),
-				}, fDecl.Body.List...)
-				dirty = true
-			}
-		} else if _, hasTMParam, hasTMName := isTestMainFunc(decl); hasTMName {
-			tmInfo.testMainFile = &filePath
-			tmInfo.testMainParam = hasTMParam
+		if _, hasTMParam, hasTMName := isTestMainFunc(decl); hasTMName {
+			tpi.MainFile = &filePath
+			tpi.MainParam = hasTMParam
+			found = true
 		}
 	}
 
-	if !hasImports {
-		importDeclaration := getImportDeclaration()
-		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec())
-		fileParser.Decls = append([]ast.Decl{importDeclaration}, fileParser.Decls...)
-	}
-
-	if dirty {
-		//fmt.Printf("Updating %s file.\n", filePath)
-		f, err := os.Create(filePath)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		err = printer.Fprint(f, fSet, fileParser)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return found, nil
 }
 
 func processFileTestMain(filePath string) error {
@@ -171,11 +174,15 @@ func processFileTestMain(filePath string) error {
 			osImportFound := false
 			testingImportFound := false
 			agentImportFound := false
+			agentOptionsImportFound := false
 			for _, impSpec := range genDcl.Specs {
 				importSentence := impSpec.(*ast.ImportSpec)
 				if importSentence.Path.Value == ImportPath {
-					currentImportName = importSentence.Name.Name
 					agentImportFound = true
+					continue
+				}
+				if importSentence.Path.Value == AgentImportPath {
+					agentOptionsImportFound = true
 					continue
 				}
 				if importSentence.Path.Value == "\"os\"" {
@@ -196,6 +203,9 @@ func processFileTestMain(filePath string) error {
 			if !agentImportFound {
 				genDcl.Specs = append(genDcl.Specs, getAgentImportSpec())
 			}
+			if !agentOptionsImportFound {
+				genDcl.Specs = append(genDcl.Specs, getAgentOptionsImportSpec())
+			}
 		} else if fDecl, hTmParams, hasTmName := isTestMainFunc(decl); hasTmName {
 			testMainFunc = fDecl
 			hasTMParams = hTmParams
@@ -204,27 +214,29 @@ func processFileTestMain(filePath string) error {
 
 	if !hasImports {
 		importDeclaration := getImportDeclaration()
-		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec(), getOsImportSpec(), getTestingImportSpec())
+		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec(), getAgentOptionsImportSpec(),
+			getOsImportSpec(), getTestingImportSpec())
 		fileParser.Decls = append([]ast.Decl{importDeclaration}, fileParser.Decls...)
 	}
 
-	if testMainFunc == nil {
-		fileParser.Decls = append(fileParser.Decls, getTestMainFunc(currentImportName))
-	} else {
+	if testMainFunc != nil {
 		if !testMainHasGlobalAgent(testMainFunc, currentImportName) {
 			if hasTMParams {
 				if modifyExistingTestMain(testMainFunc, currentImportName) {
-					fmt.Printf("\tThe TestMain func of package '%s' in '%s' has been patched.\n",
+					fmt.Printf("  The TestMain func of package '%s' in '%s' has been patched.\n",
 						fileParser.Name.Name, filePath)
 				} else {
-					fmt.Printf("\tPackage '%s' already has a TestMain func in '%s', please modify the file manually.\n",
+					fmt.Printf("  Package '%s' already has a TestMain func in '%s', please modify the file manually.\n",
 						fileParser.Name.Name, filePath)
 				}
 			} else {
-				fmt.Printf("\tPackage '%s' already has a TestMain func in '%s' but doesn't have the right 'testing.M' parameter.\n",
+				fmt.Printf("  Package '%s' already has a TestMain func in '%s' but doesn't have the right 'testing.M' parameter.\n",
 					fileParser.Name.Name, filePath)
 				return nil
 			}
+		} else {
+			fmt.Printf("  Package '%s' already patched in '%s'.\n",
+				fileParser.Name.Name, filePath)
 		}
 	}
 
