@@ -61,7 +61,7 @@ func main() {
 		}
 		for _, tpi := range testPackageInfoMap {
 			if tpi.MainFile == nil {
-				mFile := path.Join(tpi.Folder, "_gen_main_test.go")
+				mFile := path.Join(tpi.Folder, "scope_pkg_test.go")
 				tpi.MainFile = &mFile
 
 				fmt.Printf("Creating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
@@ -75,8 +75,8 @@ func main() {
 				if err != nil {
 					log.Fatalf("execution failed: %s", err)
 				}
-				writer.Flush()
-				file.Close()
+				err = writer.Flush()
+				err = file.Close()
 
 			} else {
 				fmt.Printf("Updating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
