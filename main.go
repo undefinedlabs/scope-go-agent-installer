@@ -25,6 +25,7 @@ var testMainFileTemplate, _ = template.New("testMain").Parse(
 	`package {{.Name}}
 
 import (
+	"log"
 	"os"
 	"testing"
 
