@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -19,6 +20,7 @@ type testPackageInfo struct {
 	Folder    string
 	MainFile  *string
 	MainParam bool
+	PkgDotDep []string
 }
 
 var testMainFileTemplate, _ = template.New("testMain").Parse(
@@ -56,9 +58,17 @@ func main() {
 	}
 
 	if folder != nil {
+
+		root := path.Clean(*folder)
+		modBytes, err := ioutil.ReadFile(path.Join(root, "go.mod"))
+		if err == nil {
+			modStr := string(modBytes)
+			_ = modStr
+		}
+
 		testPackageInfoMap := map[string]*testPackageInfo{}
 		fmt.Printf("Processing: %s\n", *folder)
-		err := processFolderTestFiles(*folder, processTestFile, &testPackageInfoMap)
+		err = processFolderTestFiles(*folder, processTestFile, &testPackageInfoMap)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -143,12 +153,16 @@ func processTestFile(filePath string, state interface{}) (bool, error) {
 			Folder:    path.Dir(filePath),
 			MainFile:  nil,
 			MainParam: false,
+			PkgDotDep: nil,
 		}
 		tmInfoMap[fileParser.Name.Name] = tpi
 	}
 
 	found := false
 	for _, decl := range fileParser.Decls {
+		if paths := getDotImport(decl); len(paths) > 0 {
+			tpi.PkgDotDep = paths
+		}
 		if _, hasTMParam, hasTMName := isTestMainFunc(decl); hasTMName {
 			tpi.MainFile = &filePath
 			tpi.MainParam = hasTMParam

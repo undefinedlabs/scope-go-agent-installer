@@ -2,7 +2,25 @@ package main
 
 import (
 	"go/ast"
+	"go/token"
+	"strings"
 )
+
+func getDotImport(decl ast.Decl) []string {
+	var paths []string
+	if gDecl, ok := decl.(*ast.GenDecl); ok {
+		if gDecl.Tok == token.IMPORT {
+			for _, spec := range gDecl.Specs {
+				if iSpec, ok := spec.(*ast.ImportSpec); ok {
+					if iSpec.Name != nil && iSpec.Name.Name == "." {
+						paths = append(paths, strings.Replace(iSpec.Path.Value, "\"", "", -1))
+					}
+				}
+			}
+		}
+	}
+	return paths
+}
 
 func isTestMainFunc(decl ast.Decl) (*ast.FuncDecl, bool, bool) {
 	if fDecl, ok := decl.(*ast.FuncDecl); ok {
