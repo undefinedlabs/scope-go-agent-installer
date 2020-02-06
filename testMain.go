@@ -34,7 +34,7 @@ func isTestMainFunc(decl ast.Decl) (*ast.FuncDecl, bool, bool) {
 	return nil, false, false
 }
 
-func testMainHasGlobalAgent(decl *ast.FuncDecl, currentImportName string) bool {
+func testMainHasGlobalAgent(decl *ast.FuncDecl) bool {
 	globalAgentFound := false
 	ast.Inspect(decl.Body, func(node ast.Node) bool {
 		if node == nil {
