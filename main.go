@@ -6,39 +6,31 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"log"
 	"os"
 	"path"
 	"text/template"
+
+	_ "go.undefinedlabs.com/scopeagent"
 )
 
 type testPackageInfo struct {
-	Name      string
-	Folder    string
-	MainFile  *string
-	MainParam bool
+	Name             string
+	Folder           string
+	MainFile         *string
+	InstrumentedFile string
+	Instrumented     bool
+	SkippedFile      string
+	Skipped          bool
 }
 
 var testMainFileTemplate, _ = template.New("testMain").Parse(
 	`package {{.Name}}
 
 import (
-	"log"
-	"os"
-	"testing"
-
-	"go.undefinedlabs.com/scopeagent"
-	"go.undefinedlabs.com/scopeagent/agent"
-	"go.undefinedlabs.com/scopeagent/instrumentation/nethttp"
+	_ "go.undefinedlabs.com/scopeagent/autoinstrument"
 )
-
-func TestMain(m *testing.M) {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Llongfile)
-	nethttp.PatchHttpDefaultClient()
-	os.Exit(scopeagent.Run(m, agent.WithSetGlobalTracer()))
-}
 `)
 
 func main() {
@@ -63,11 +55,16 @@ func main() {
 			fmt.Println(err)
 		}
 		for _, tpi := range testPackageInfoMap {
-			if tpi.MainFile == nil {
-				mFile := path.Join(tpi.Folder, "scope_pkg_test.go")
-				tpi.MainFile = &mFile
 
-				fmt.Printf("Creating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
+			if tpi.Instrumented {
+				fmt.Printf("[SKIPPED] package '%v' is already instrumented in %v\n", tpi.Name, tpi.InstrumentedFile)
+			} else if tpi.Skipped {
+				fmt.Printf("[SKIPPED] package '%v' is importing %v in %v\n", tpi.Name, ImportPath, tpi.SkippedFile)
+			} else {
+
+				fileName := fmt.Sprintf("scope_pkg_%v_test.go", tpi.Name)
+				mFile := path.Join(tpi.Folder, fileName)
+				fmt.Printf("Auto instrumenting package %v in %v.\n", tpi.Name, mFile)
 
 				file, errFile := os.Create(mFile)
 				if errFile != nil {
@@ -78,22 +75,15 @@ func main() {
 				if err != nil {
 					log.Fatalf("execution failed: %s", err)
 				}
-				err = writer.Flush()
-				err = file.Close()
-
-			} else {
-				fmt.Printf("Updating TestMain func for package %v in %v.\n", tpi.Name, *tpi.MainFile)
-				err = processFileTestMain(*tpi.MainFile)
-			}
-			if err != nil {
-				fmt.Println(err)
+				writer.Flush()
+				file.Close()
 			}
 		}
 		fmt.Println("Done.")
 	}
 }
 
-func processFolderTestFiles(folder string, fileProcessor func(string, interface{}) (bool, error), state interface{}) error {
+func processFolderTestFiles(folder string, fileProcessor func(string, interface{}) error, state interface{}) error {
 	f, err := os.Open(folder)
 	if err != nil {
 		return err
@@ -102,7 +92,6 @@ func processFolderTestFiles(folder string, fileProcessor func(string, interface{
 	if err != nil {
 		return err
 	}
-	mainFound := false
 	for _, entry := range entries {
 		entryName := entry.Name()
 		if entryName[0] == '.' {
@@ -114,143 +103,60 @@ func processFolderTestFiles(folder string, fileProcessor func(string, interface{
 			if fErr != nil {
 				return fErr
 			}
-		} else if len(filePath) > 8 && !mainFound {
+		} else if len(filePath) > 8 {
 			if filePath[len(filePath)-8:] != "_test.go" {
 				continue
 			}
-			found, fErr := fileProcessor(filePath, state)
+			fErr := fileProcessor(filePath, state)
 			if fErr != nil {
 				return fErr
 			}
-			mainFound = found
 		}
 	}
 	return nil
 }
 
-func processTestFile(filePath string, state interface{}) (bool, error) {
+func processTestFile(filePath string, state interface{}) error {
 	fSet := token.NewFileSet()
 	fileParser, err := parser.ParseFile(fSet, filePath, nil, parser.ParseComments)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	tmInfoMap := *(state.(*map[string]*testPackageInfo))
 	tpi := tmInfoMap[fileParser.Name.Name]
 	if tpi == nil {
 		tpi = &testPackageInfo{
-			Name:      fileParser.Name.Name,
-			Folder:    path.Dir(filePath),
-			MainFile:  nil,
-			MainParam: false,
+			Name:         fileParser.Name.Name,
+			Folder:       path.Dir(filePath),
+			MainFile:     nil,
+			Instrumented: false,
+			Skipped:      false,
 		}
 		tmInfoMap[fileParser.Name.Name] = tpi
 	}
 
-	found := false
 	for _, decl := range fileParser.Decls {
-		if _, hasTMParam, hasTMName := isTestMainFunc(decl); hasTMName {
+		if mainFunc, _, hasTMName := isTestMainFunc(decl); hasTMName {
 			tpi.MainFile = &filePath
-			tpi.MainParam = hasTMParam
-			found = true
+			if testMainHasGlobalAgent(mainFunc) {
+				tpi.Instrumented = true
+				tpi.InstrumentedFile = filePath
+			}
 		}
-	}
-
-	return found, nil
-}
-
-func processFileTestMain(filePath string) error {
-	fSet := token.NewFileSet()
-	fileParser, err := parser.ParseFile(fSet, filePath, nil, parser.ParseComments)
-	if err != nil {
-		return err
-	}
-
-	hasImports := false
-	hasTMParams := false
-	var testMainFunc *ast.FuncDecl
-	currentImportName := ImportName
-	for _, decl := range fileParser.Decls {
 		if genDcl, ok := isImportDeclaration(decl); ok {
-			hasImports = true
-			osImportFound := false
-			testingImportFound := false
-			agentImportFound := false
-			agentOptionsImportFound := false
 			for _, impSpec := range genDcl.Specs {
 				importSentence := impSpec.(*ast.ImportSpec)
+				if importSentence.Path.Value == AutoInstrumentationImportPath {
+					tpi.Instrumented = true
+					tpi.InstrumentedFile = filePath
+				}
 				if importSentence.Path.Value == ImportPath {
-					agentImportFound = true
-					continue
-				}
-				if importSentence.Path.Value == AgentImportPath {
-					agentOptionsImportFound = true
-					continue
-				}
-				if importSentence.Path.Value == "\"os\"" {
-					osImportFound = true
-					continue
-				}
-				if importSentence.Path.Value == "\"testing\"" {
-					testingImportFound = true
-					continue
+					tpi.SkippedFile = filePath
+					tpi.Skipped = true
 				}
 			}
-			if !osImportFound {
-				genDcl.Specs = append(genDcl.Specs, getOsImportSpec())
-			}
-			if !testingImportFound {
-				genDcl.Specs = append(genDcl.Specs, getTestingImportSpec())
-			}
-			if !agentImportFound {
-				genDcl.Specs = append(genDcl.Specs, getAgentImportSpec())
-			}
-			if !agentOptionsImportFound {
-				genDcl.Specs = append(genDcl.Specs, getAgentOptionsImportSpec())
-			}
-		} else if fDecl, hTmParams, hasTmName := isTestMainFunc(decl); hasTmName {
-			testMainFunc = fDecl
-			hasTMParams = hTmParams
 		}
 	}
-
-	if !hasImports {
-		importDeclaration := getImportDeclaration()
-		importDeclaration.Specs = append(importDeclaration.Specs, getAgentImportSpec(), getAgentOptionsImportSpec(),
-			getOsImportSpec(), getTestingImportSpec())
-		fileParser.Decls = append([]ast.Decl{importDeclaration}, fileParser.Decls...)
-	}
-
-	if testMainFunc != nil {
-		if !testMainHasGlobalAgent(testMainFunc, currentImportName) {
-			if hasTMParams {
-				if modifyExistingTestMain(testMainFunc, currentImportName) {
-					fmt.Printf("  The TestMain func of package '%s' in '%s' has been patched.\n",
-						fileParser.Name.Name, filePath)
-				} else {
-					fmt.Printf("  Package '%s' already has a TestMain func in '%s', please modify the file manually.\n",
-						fileParser.Name.Name, filePath)
-				}
-			} else {
-				fmt.Printf("  Package '%s' already has a TestMain func in '%s' but doesn't have the right 'testing.M' parameter.\n",
-					fileParser.Name.Name, filePath)
-				return nil
-			}
-		} else {
-			fmt.Printf("  Package '%s' already patched in '%s'.\n",
-				fileParser.Name.Name, filePath)
-		}
-	}
-
-	f, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	err = printer.Fprint(f, fSet, fileParser)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
