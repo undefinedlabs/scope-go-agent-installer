@@ -11,6 +11,8 @@ import (
 	"os"
 	"path"
 	"text/template"
+
+	_ "go.undefinedlabs.com/scopeagent"
 )
 
 type testPackageInfo struct {
