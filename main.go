@@ -124,16 +124,18 @@ func processTestFile(filePath string, state interface{}) error {
 	}
 
 	tmInfoMap := *(state.(*map[string]*testPackageInfo))
-	tpi := tmInfoMap[fileParser.Name.Name]
+	folder := path.Dir(filePath)
+	key := fmt.Sprintf("%s.%s", folder, fileParser.Name.Name)
+	tpi := tmInfoMap[key]
 	if tpi == nil {
 		tpi = &testPackageInfo{
 			Name:         fileParser.Name.Name,
-			Folder:       path.Dir(filePath),
+			Folder:       folder,
 			MainFile:     nil,
 			Instrumented: false,
 			Skipped:      false,
 		}
-		tmInfoMap[fileParser.Name.Name] = tpi
+		tmInfoMap[key] = tpi
 	}
 
 	for _, decl := range fileParser.Decls {
