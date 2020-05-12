@@ -24,6 +24,12 @@ func TestInstallerProcessor(t *testing.T) {
 	baseInstFilePath := "./testdata/scope_pkg_testdata_test.go"
 	sampleInstFilePath := "./testdata/samplePackage/scope_pkg_samplePackage_test.go"
 
+	defer func() {
+		// Remove test files
+		_ = os.Remove(baseInstFilePath)
+		_ = os.Remove(sampleInstFilePath)
+	}()
+
 	// Remove previous files if any
 	_ = os.Remove(baseInstFilePath)
 	_ = os.Remove(sampleInstFilePath)
