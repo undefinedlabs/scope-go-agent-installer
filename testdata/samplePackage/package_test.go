@@ -1,6 +1,8 @@
 package samplePackage
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestIdentity(t *testing.T) {
 	if Identity() != "samplePackage" {

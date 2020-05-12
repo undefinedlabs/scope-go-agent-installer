@@ -64,4 +64,10 @@ func TestInstallerProcessor(t *testing.T) {
 	if string(data) != expectedSampleInstFile {
 		t.Fatal("the sample package instrumentation file is different than expected")
 	}
+
+	// Instrumented test package shouldn't exist
+	_, err = os.Stat("./testdata/instrumentedPackage/scope_pkg_instrumentedPackage_test.go")
+	if err == nil {
+		t.Fatal("the instrumented package instrumentation file shouldn't exist")
+	}
 }
