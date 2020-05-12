@@ -1,4 +1,4 @@
-# scope-go-agent-installer
+# Scope Go Agent Installer
 
 Tool to install the scope go agent in an existing project by adding a file with the import autoinstrumentation in each package containing tests, as seen in the documentation: https://docs.scope.dev/docs/go-installation
 
