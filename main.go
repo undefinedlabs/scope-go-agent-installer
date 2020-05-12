@@ -48,39 +48,43 @@ func main() {
 	}
 
 	if folder != nil {
-		testPackageInfoMap := map[string]*testPackageInfo{}
-		fmt.Printf("Processing: %s\n", *folder)
-		err := processFolderTestFiles(*folder, processTestFile, &testPackageInfoMap)
-		if err != nil {
-			fmt.Println(err)
-		}
-		for _, tpi := range testPackageInfoMap {
-
-			if tpi.Instrumented {
-				fmt.Printf("[SKIPPED] package '%v' is already instrumented in %v\n", tpi.Name, tpi.InstrumentedFile)
-			} else if tpi.Skipped {
-				fmt.Printf("[SKIPPED] package '%v' is importing %v in %v\n", tpi.Name, ImportPath, tpi.SkippedFile)
-			} else {
-
-				fileName := fmt.Sprintf("scope_pkg_%v_test.go", tpi.Name)
-				mFile := path.Join(tpi.Folder, fileName)
-				fmt.Printf("Auto instrumenting package %v in %v.\n", tpi.Name, mFile)
-
-				file, errFile := os.Create(mFile)
-				if errFile != nil {
-					log.Fatalf("execution failed: %s", errFile)
-				}
-				writer := bufio.NewWriter(file)
-				err := testMainFileTemplate.Execute(writer, tpi)
-				if err != nil {
-					log.Fatalf("execution failed: %s", err)
-				}
-				writer.Flush()
-				file.Close()
-			}
-		}
-		fmt.Println("Done.")
+		processFolder(*folder)
 	}
+}
+
+func processFolder(folder string) {
+	testPackageInfoMap := map[string]*testPackageInfo{}
+	fmt.Printf("Processing: %s\n", folder)
+	err := processFolderTestFiles(folder, processTestFile, &testPackageInfoMap)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for _, tpi := range testPackageInfoMap {
+
+		if tpi.Instrumented {
+			fmt.Printf("[SKIPPED] package '%v' is already instrumented in %v\n", tpi.Name, tpi.InstrumentedFile)
+		} else if tpi.Skipped {
+			fmt.Printf("[SKIPPED] package '%v' is importing %v in %v\n", tpi.Name, ImportPath, tpi.SkippedFile)
+		} else {
+
+			fileName := fmt.Sprintf("scope_pkg_%v_test.go", tpi.Name)
+			mFile := path.Join(tpi.Folder, fileName)
+			fmt.Printf("Auto instrumenting package %v in %v.\n", tpi.Name, mFile)
+
+			file, errFile := os.Create(mFile)
+			if errFile != nil {
+				log.Fatalf("execution failed: %s", errFile)
+			}
+			writer := bufio.NewWriter(file)
+			err := testMainFileTemplate.Execute(writer, tpi)
+			if err != nil {
+				log.Fatalf("execution failed: %s", err)
+			}
+			writer.Flush()
+			file.Close()
+		}
+	}
+	fmt.Println("Done.")
 }
 
 func processFolderTestFiles(folder string, fileProcessor func(string, interface{}) error, state interface{}) error {
